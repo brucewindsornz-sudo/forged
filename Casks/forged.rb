@@ -1,9 +1,9 @@
 cask "forged" do
   arch arm: "arm64", intel: "x64"
 
-  version "1.0.1"
-  sha256 arm:   "8feedb6801d2c16a9e50f7a2ff1a7fa2a1e50dd102adababa3f28b0b7cdc0639",
-         intel: "fbdba6d089fc70066b6a3c7ba93e5b2aac74d453b82512ebf5fcc7d1da132085"
+  version "1.0.2"
+  sha256 arm:   "a946df9114c9c5b9f308a125f3e33e2992f051999e9a77781351028d12341c0a",
+         intel: "3a19e31026854cd2f91b331074af7676ef497c55d11e3c7c2bf98f4dd66c5b9e"
 
   url "https://github.com/brucewindsornz-sudo/forged/releases/download/v#{version}/Forged-#{version}-#{arch}-mac.zip"
   name "Forged"
