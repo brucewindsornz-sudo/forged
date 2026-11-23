@@ -2,11 +2,32 @@
 
 Forged is an original photo editor for macOS, built with Electron by New Zee Build. Its layout, tools and keyboard shortcuts follow the conventions of mainstream consumer photo editors, but all of its code, design and branding are original.
 
-## Install the ready-made app
+## Install with Homebrew (recommended)
+
+```sh
+brew tap brucewindsornz-sudo/forged https://github.com/brucewindsornz-sudo/forged
+brew install --cask forged
+```
+
+To update later:
+
+```sh
+brew update && brew upgrade --cask forged
+```
+
+To uninstall, run `brew uninstall --cask forged`. Add `--zap` to remove its settings as well. The cask clears the macOS download flag and re-signs the app on your Mac, so you won't get the "Move to Trash" warning.
+
+## Releasing a new version
+
+1. Change `"version"` in `package.json`, for example to `1.0.1`, and commit.
+2. Tag and push: `git tag v1.0.1 && git push origin main v1.0.1`.
+3. The Release workflow builds both Mac apps, publishes the GitHub release and updates `Casks/forged.rb`. After that, `brew upgrade --cask forged` installs the new version.
+
+## Install the ready-made app manually
 
 1. Unzip the right build for your Mac:
    - Apple Silicon (M1–M4): `Forged-1.0.0-arm64-mac.zip`
-   - Intel: `Forged-1.0.0-mac.zip`
+   - Intel: `Forged-1.0.0-x64-mac.zip`
 2. Drag `Forged.app` into Applications.
 3. The app isn't signed with an Apple developer certificate, so the first time you open it macOS may say it "can't be opened" or "is damaged" and offer to move it to the Trash. Choose Done or Cancel, not Move to Trash. Then use either fix:
    - **Terminal (always works):** run `xattr -cr "/Applications/Forged.app" && codesign --force --deep --sign - "/Applications/Forged.app"`, then open the app normally.

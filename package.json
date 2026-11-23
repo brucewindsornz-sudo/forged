@@ -63,7 +63,13 @@
           "name": "Image",
           "role": "Editor"
         }
-      ]
+      ],
+      "artifactName": "Forged-${version}-${arch}-mac.${ext}"
     }
-  }
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/brucewindsornz-sudo/forged.git"
+  },
+  "homepage": "https://github.com/brucewindsornz-sudo/forged"
 }
