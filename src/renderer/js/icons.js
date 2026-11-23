@@ -10,6 +10,7 @@
     lasso: '<path d="M7 16c-3-1.5-4-4-3-6.5C5.5 6 10 4 14.5 4.5S21 8 20 11s-5 5-9.5 5c-1.5 0-2.5 1-2 2.5.4 1.3 2 2 2 3.5"/>',
     polylasso: '<path d="M4 15L7 5l9 2 4 7-8 3-5-2" stroke-linejoin="round"/><path d="M7 15v6"/>',
     wand: '<path d="M4 20L15 9M14 4v3M19 9h-3M17.5 5.5l-2 2M10 5.5l1.5 1.5M18.5 12.5L17 11"/>',
+    selbrush: '<path d="M14.5 4.5l5 5-8 8-5-5z"/><path d="M6.5 12.5L4 20l7.5-2.5" stroke-dasharray="2 2"/>',
     quickselect: '<path d="M5 19c2-6 6-10 12-12" /><circle cx="17" cy="7" r="3"/><path d="M5 19l-1.5 1.5" stroke-dasharray="2 2"/>',
     crop: '<path d="M6 2v16h16M2 6h16v16"/>',
     straighten: '<path d="M3 17L21 9"/><path d="M3 20h18" stroke-dasharray="2 2"/><circle cx="12" cy="13" r="1.5"/>',

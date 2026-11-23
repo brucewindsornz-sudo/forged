@@ -190,5 +190,139 @@
     },
     featherCanvas, threshold, grow, make, combine,
   };
+
+  // ---------- Smart region: flood fill with true edge coverage ----------
+  // Pixels within Tolerance (largest per-channel difference, premultiplied, so transparent areas
+  // behave) are fully included. With anti-alias on, the soft edge pixels around the region are
+  // un-mixed: each is treated as a blend of the clicked colour and the neighbouring edge colour,
+  // giving partial coverage plus the pure edge colour. Fills then run cleanly into anti-aliased
+  // lines and erasing leaves no fringe or halo.
+  S.smartRegion = (doc, src, px, py, o = {}) => {
+    const w = doc.w, h = doc.h, N = w * h;
+    px = Math.floor(px); py = Math.floor(py);
+    if (px < 0 || py < 0 || px >= w || py >= h) return null;
+    const d = o.cache && o.cache.src === src ? null : U.getData(src).data;
+    const tol = Math.max(0, +o.tol || 0), contiguous = o.contiguous !== false, aa = o.antialias !== false, expand = Math.round(+o.expand || 0);
+    // premultiplied copy (cached per source canvas by the caller)
+    let P = o.cache && o.cache.src === src ? o.cache.P : null;
+    if (!P) {
+      P = new Uint8ClampedArray(N * 4);
+      for (let i = 0; i < N * 4; i += 4) { const a = d[i + 3] / 255; P[i] = d[i] * a; P[i + 1] = d[i + 1] * a; P[i + 2] = d[i + 2] * a; P[i + 3] = d[i + 3]; }
+      if (o.cache) { o.cache.src = src; o.cache.P = P; }
+    }
+    const si = (py * w + px) * 4, S0 = P[si], S1 = P[si + 1], S2 = P[si + 2], S3 = P[si + 3];
+    const dist = (i) => Math.max(Math.abs(P[i] - S0), Math.abs(P[i + 1] - S1), Math.abs(P[i + 2] - S2), Math.abs(P[i + 3] - S3));
+    const ok = (j) => dist(j * 4) <= tol + 0.5;
+    const core = new Uint8Array(N);
+    if (contiguous) {
+      const stack = [px, py]; core[py * w + px] = 1;
+      while (stack.length) {
+        const y = stack.pop(), x = stack.pop();
+        let xl = x; while (xl > 0 && !core[y * w + xl - 1] && ok(y * w + xl - 1)) { xl--; core[y * w + xl] = 1; }
+        let xr = x; while (xr < w - 1 && !core[y * w + xr + 1] && ok(y * w + xr + 1)) { xr++; core[y * w + xr] = 1; }
+        for (const ny of [y - 1, y + 1]) {
+          if (ny < 0 || ny >= h) continue; let run = false;
+          for (let xx = xl; xx <= xr; xx++) {
+            const j = ny * w + xx;
+            if (!core[j] && ok(j)) { core[j] = 1; if (!run) { stack.push(xx, ny); run = true; } } else run = false;
+          }
+        }
+      }
+    } else for (let j = 0; j < N; j++) if (ok(j)) core[j] = 1;
+    // bounding box of the region, padded, so the edge passes only visit nearby pixels
+    let bx0 = w, by0 = h, bx1 = -1, by1 = -1;
+    for (let y = 0; y < h; y++) { const row = y * w; let any = false; for (let x = 0; x < w; x++) if (core[row + x]) { any = true; if (x < bx0) bx0 = x; if (x > bx1) bx1 = x; } if (any) { if (y < by0) by0 = y; by1 = y; } }
+    if (bx1 < 0) return { w, h, cov: new Uint8Array(N), core, edges: new Map(), count: 0 };
+    const pad = Math.abs(expand) + 4;
+    bx0 = Math.max(0, bx0 - pad); by0 = Math.max(0, by0 - pad); bx1 = Math.min(w - 1, bx1 + pad); by1 = Math.min(h - 1, by1 + pad);
+    // Expand / contract the region by whole pixels
+    for (let k = 0; k < Math.abs(expand); k++) {
+      const grow1 = expand > 0, src1 = core.slice();
+      for (let y = by0; y <= by1; y++) for (let x = bx0; x <= bx1; x++) {
+        const j = y * w + x; if (src1[j] === (grow1 ? 1 : 0)) continue;
+        let hit = false;
+        for (let dy = -1; dy <= 1 && !hit; dy++) for (let dx = -1; dx <= 1; dx++) { const xx = x + dx, yy = y + dy; if (xx < 0 || yy < 0 || xx >= w || yy >= h) continue; if (src1[yy * w + xx] === (grow1 ? 1 : 0)) { hit = true; break; } }
+        if (hit) core[j] = grow1 ? 1 : 0;
+      }
+    }
+    const cov = new Uint8Array(N); let count = 0;
+    for (let y = by0; y <= by1; y++) for (let x = bx0; x <= bx1; x++) { const j = y * w + x; if (core[j]) { cov[j] = 255; count++; } }
+    const edges = new Map();
+    if (aa && expand <= 0) {
+      const ring = (seedTest) => {
+        const list = [];
+        for (let y = by0; y <= by1; y++) for (let x = bx0; x <= bx1; x++) {
+          const j = y * w + x; if (cov[j]) continue; let near = false;
+          for (let dy = -1; dy <= 1 && !near; dy++) for (let dx = -1; dx <= 1; dx++) { const xx = x + dx, yy = y + dy; if ((dx || dy) && xx >= 0 && yy >= 0 && xx < w && yy < h && seedTest(yy * w + xx)) { near = true; break; } }
+          if (near) list.push(j);
+        }
+        return list;
+      };
+      const unmix = (list) => {
+        const done = [];
+        for (const j of list) {
+          const x = j % w, y = (j - x) / w, i = j * 4;
+          // edge colour = the most different nearby pixel outside the region
+          let best = -1, bi = -1;
+          for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) {
+            const xx = x + dx, yy = y + dy; if (xx < 0 || yy < 0 || xx >= w || yy >= h) continue;
+            const k = yy * w + xx; if (cov[k] || edges.has(k)) continue; const q = k * 4;
+            const dd = (P[q] - S0) ** 2 + (P[q + 1] - S1) ** 2 + (P[q + 2] - S2) ** 2 + (P[q + 3] - S3) ** 2;
+            if (dd > best) { best = dd; bi = q; }
+          }
+          if (bi < 0 || best < 1) continue;
+          const E0 = P[bi], E1 = P[bi + 1], E2 = P[bi + 2], E3 = P[bi + 3];
+          const v0 = S0 - E0, v1 = S1 - E1, v2 = S2 - E2, v3 = S3 - E3, vv = v0 * v0 + v1 * v1 + v2 * v2 + v3 * v3;
+          const q0 = P[i] - E0, q1 = P[i + 1] - E1, q2 = P[i + 2] - E2, q3 = P[i + 3] - E3;
+          let a = (q0 * v0 + q1 * v1 + q2 * v2 + q3 * v3) / vv; a = Math.min(0.995, Math.max(0, a));
+          // how well "blend of clicked colour and edge colour" explains this pixel
+          const r0 = q0 - a * v0, r1 = q1 - a * v1, r2 = q2 - a * v2, r3 = q3 - a * v3;
+          const resid = Math.sqrt((r0 * r0 + r1 * r1 + r2 * r2 + r3 * r3) / vv);
+          a *= Math.max(0, 1 - resid * 2);
+          if (a < 0.03) continue;
+          cov[j] = Math.round(a * 255); edges.set(j, [E0, E1, E2, E3]); done.push(j);
+        }
+        return done;
+      };
+      const r1 = unmix(ring((k) => core[k] === 1));
+      const strong = new Set(r1.filter((j) => cov[j] > 76));
+      if (strong.size) unmix(ring((k) => strong.has(k)));
+    }
+    // Clip to the active selection
+    if (doc.sel) {
+      const sd = U.getData(doc.sel.canvas).data;
+      for (let j = 0; j < N; j++) if (cov[j]) { const m = sd[j * 4 + 3]; if (m < 255) cov[j] = Math.round(cov[j] * m / 255); }
+    }
+    return { w, h, cov, core, edges, count, seed: [S0, S1, S2, S3] };
+  };
+  // Coverage as an alpha mask canvas (doc size)
+  S.regionMask = (R, rgb = [255, 255, 255]) => {
+    const img = new ImageData(R.w, R.h), o = img.data;
+    for (let j = 0; j < R.w * R.h; j++) { const a = R.cov[j]; if (!a) continue; const i = j * 4; o[i] = rgb[0]; o[i + 1] = rgb[1]; o[i + 2] = rgb[2]; o[i + 3] = a; }
+    return U.fromData(img);
+  };
+  // Apply to a pixel layer in place. target(premultiplied) gets the new colour for a region pixel.
+  // fill = [r,g,b] (straight) to fill, or null to erase. opacity 0..1.
+  S.applyRegion = (doc, L, R, fill, opacity = 1) => {
+    const lw = L.canvas.width, lh = L.canvas.height, x = U.ctx(L.canvas);
+    const ox = Math.max(0, L.x), oy = Math.max(0, L.y), ex = Math.min(R.w, L.x + lw), ey = Math.min(R.h, L.y + lh);
+    if (ex <= ox || ey <= oy) return;
+    const img = x.getImageData(ox - L.x, oy - L.y, ex - ox, ey - oy), D = img.data, iw = ex - ox;
+    const F = fill ? [fill[0], fill[1], fill[2], 255] : [0, 0, 0, 0];
+    for (let y = oy; y < ey; y++) for (let xx = ox; xx < ex; xx++) {
+      const j = y * R.w + xx, c = R.cov[j]; if (!c) continue;
+      const i = ((y - oy) * iw + (xx - ox)) * 4, a0 = D[i + 3] / 255;
+      const p = [D[i] * a0, D[i + 1] * a0, D[i + 2] * a0, D[i + 3]];
+      const E = R.edges.get(j); let t, m = 1;
+      if (E) { const a = c / 255; t = [0, 1, 2, 3].map((k) => a * F[k] + (1 - a) * E[k]); }
+      else { t = F; m = c / 255; } // c < 255 here only from a soft selection edge
+      const op = opacity * m;
+      const q = [0, 1, 2, 3].map((k) => p[k] + op * (t[k] - p[k]));
+      const na = q[3];
+      if (na <= 0.5) { D[i] = D[i + 1] = D[i + 2] = D[i + 3] = 0; continue; }
+      D[i] = Math.round(q[0] * 255 / na); D[i + 1] = Math.round(q[1] * 255 / na); D[i + 2] = Math.round(q[2] * 255 / na); D[i + 3] = Math.round(na);
+    }
+    x.putImageData(img, ox - L.x, oy - L.y);
+  };
   K.Sel = S;
 })(window.K);

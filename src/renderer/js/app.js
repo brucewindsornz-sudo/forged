@@ -785,7 +785,7 @@
       // Arrows: move selection outline with selection tools, layer with Move tool or ⌘
       if (k.startsWith('Arrow') && app.doc && !(app.tool.id === 'move' && !mod)) {
         const step = e.shiftKey ? 10 : 1, dx = k === 'ArrowLeft' ? -step : k === 'ArrowRight' ? step : 0, dy = k === 'ArrowUp' ? -step : k === 'ArrowDown' ? step : 0;
-        const selTools = ['marquee', 'ellipse', 'lasso', 'polylasso', 'wand', 'quickselect'];
+        const selTools = ['marquee', 'ellipse', 'lasso', 'polylasso', 'wand', 'quickselect', 'selbrush'];
         if (!mod && selTools.includes(app.tool.id) && app.doc.sel) { e.preventDefault(); nudgeSel(dx, dy); return; }
         if (mod && app.doc.active) { e.preventDefault(); K.tools.move.key(e); return; }
       }

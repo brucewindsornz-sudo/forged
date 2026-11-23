@@ -496,6 +496,64 @@
     },
   };
 
+  // Selection Brush: paint a selection directly (Selection view) or paint the protected area (Mask view)
+  tools.selbrush = {
+    id: 'selbrush', name: 'Selection Brush', hotkey: 'a', cursor: 'none',
+    optionSpec: [
+      { key: 'mode', type: 'buttons', def: 'add', options: [['add', 'Add'], ['sub', 'Subtract']] },
+      O.size(40, 1000), O.hardness(100),
+      { key: 'view', label: 'View', type: 'buttons', def: 'sel', options: [['sel', 'Selection'], ['mask', 'Mask']] },
+      { key: 'overlay', label: 'Overlay', type: 'range', min: 10, max: 90, def: 50, unit: '%' },
+      { key: 'hint', type: 'hint', label: 'Alt paints the opposite way' },
+    ],
+    down(e, p) {
+      const d = doc(); if (!d) return;
+      let add = this.o.mode === 'add'; if (this.o.view === 'mask') add = !add; if (e.altKey) add = !add;
+      this.adding = add;
+      this.acc = U.canvas(d.w, d.h); this.last = null;
+      const r = Math.max(0.5, this.o.size / 2);
+      this.dab = dabCanvas(r, this.o.hardness / 100, '#ffffff');
+      this.stamp(p);
+    },
+    stamp(p) {
+      const r = Math.max(0.5, this.o.size / 2), ax = U.ctx(this.acc), dw = this.dab.width;
+      this.last = strokePoints(this.last, p, Math.max(1, r * 0.15), (x, y) => ax.drawImage(this.dab, x - dw / 2, y - dw / 2));
+      view().requestRender();
+    },
+    move(e, p) { if (this.acc) this.stamp(p); },
+    up() {
+      if (!this.acc) return; const d = doc();
+      K.Sel.combine(d, this.acc, this.adding ? 'add' : 'sub');
+      this.acc = null; d.push('Selection Brush'); view().requestRender();
+    },
+    cancel() { this.acc = null; },
+    deactivate() { this.acc = null; },
+    overlay(x, v, px) {
+      const d = doc(); if (!d) return;
+      if (this.o.view === 'mask') {
+        // red over everything that is NOT selected (including the stroke in progress)
+        let t;
+        if (!this.acc && this.mcache && this.mcache.sel === d.sel && this.mcache.doc === d) t = this.mcache.c;
+        else {
+        t = (this.mcache && this.mcache.c.width === d.w && this.mcache.c.height === d.h) ? this.mcache.c : U.canvas(d.w, d.h);
+        const tx = U.ctx(t); tx.globalCompositeOperation = 'source-over'; tx.clearRect(0, 0, d.w, d.h);
+        tx.fillStyle = '#fff'; tx.fillRect(0, 0, d.w, d.h);
+        tx.globalCompositeOperation = 'destination-out';
+        if (d.sel) tx.drawImage(d.sel.canvas, 0, 0);
+        if (this.acc) { tx.globalCompositeOperation = this.adding ? 'destination-out' : 'source-over'; tx.drawImage(this.acc, 0, 0); }
+        tx.globalCompositeOperation = 'source-in'; tx.fillStyle = '#e0242a'; tx.fillRect(0, 0, d.w, d.h);
+        this.mcache = { c: t, sel: this.acc ? undefined : d.sel, doc: d };
+        }
+        x.save(); x.globalAlpha = this.o.overlay / 100; x.drawImage(t, 0, 0); x.restore();
+      } else if (this.acc) {
+        const t = U.clone(this.acc), tx = U.ctx(t); tx.globalCompositeOperation = 'source-in';
+        tx.fillStyle = this.adding ? '#3d8bff' : '#ff3b30'; tx.fillRect(0, 0, t.width, t.height);
+        x.save(); x.globalAlpha = 0.4; x.drawImage(t, 0, 0); x.restore();
+      }
+      brushCursor(x, v, px, this.o.size);
+    },
+  };
+
   // ===== Crop =====
   tools.crop = {
     id: 'crop', name: 'Crop', hotkey: 'c', cursor: 'crosshair',
@@ -640,36 +698,105 @@
     extraOverlay(x, v, px) { const p = v.cursorPos; if (!p) return; const r = 5 * px; x.lineWidth = px; for (const c of ['rgba(0,0,0,0.8)', '#fff']) { x.strokeStyle = c; x.beginPath(); x.moveTo(p[0] - r, p[1]); x.lineTo(p[0] + r, p[1]); x.moveTo(p[0], p[1] - r); x.lineTo(p[0], p[1] + r); x.stroke(); } },
   });
 
-  // Magic Eraser: one click erases all similar pixels (like a magic wand that deletes)
-  tools.magiceraser = {
-    id: 'magiceraser', name: 'Magic Eraser', hotkey: 'e', cursor: 'crosshair',
-    optionSpec: [{ key: 'tolerance', label: 'Tolerance', type: 'range', min: 0, max: 255, def: 32 }, { key: 'contiguous', label: 'Contiguous', type: 'check', def: true },
-      { key: 'antialias', label: 'Anti-alias', type: 'check', def: true }, O.allLayers(false), O.opacity()],
-    down(e, p) {
-      const t = paintTarget(); if (!t) return; if (t.target === 'mask') { toast('The Magic Eraser works on layer pixels'); return; }
-      const d = doc(), L = t.L, src = this.o.allLayers ? d.composite() : d.renderLayer(L);
-      let m = K.Sel.wandMask(d, src, p[0], p[1], this.o.tolerance, this.o.contiguous); if (!m) return;
-      if (this.o.antialias) m = K.Sel.featherCanvas(m, 0.6);
-      K.Sel.clip(d, m);
-      const x = U.ctx(L.canvas); x.save(); x.globalCompositeOperation = 'destination-out'; x.globalAlpha = this.o.opacity / 100; x.drawImage(m, -L.x, -L.y); x.restore();
-      d.touch(L); d.push('Magic Eraser'); K.UI.refreshLayers(); view().requestRender();
-    },
-  };
+  // ===== Region tools (Paint Bucket, Magic Eraser) =====
+  // Shared: clean edge-aware region, hover preview of exactly what a click will take.
+  const REGION_OPTS = () => [
+    { key: 'tolerance', label: 'Tolerance', type: 'range', min: 0, max: 255, def: 32 },
+    { key: 'expand', label: 'Expand', type: 'range', min: -10, max: 10, def: 0, unit: 'px' },
+    { key: 'antialias', label: 'Smooth edges', type: 'check', def: true },
+    { key: 'contiguous', label: 'Contiguous', type: 'check', def: true },
+    O.allLayers(false), O.opacity(),
+    { key: 'preview', label: 'Preview', type: 'check', def: true },
+  ];
+  function regionSource(tool) {
+    const d = doc(), L = d && d.active; if (!d || !L) return null;
+    const key = [d.id, tool.o.allLayers ? 'all' : L.id, tool.o.allLayers ? d.layers.map((x) => x.id + ':' + (x.v || 0) + (x.visible ? '' : 'h')).join(',') : (L.v || 0), L.x, L.y].join('|');
+    if (tool._srcKey === key && tool._src) return tool._src;
+    let c;
+    if (tool.o.allLayers) c = d.composite();
+    else if (L.type === 'pixel' && L.canvas) { c = U.canvas(d.w, d.h); U.ctx(c).drawImage(L.canvas, L.x, L.y); }
+    else c = d.renderLayer(L);
+    tool._src = c; tool._srcKey = key; return c;
+  }
+  function regionAt(tool, p) {
+    const src = regionSource(tool); if (!src) return null;
+    tool._cache = tool._cache || {};
+    return K.Sel.smartRegion(doc(), src, p[0], p[1], { cache: tool._cache, tol: +tool.o.tolerance, contiguous: tool.o.contiguous, antialias: tool.o.antialias, expand: +tool.o.expand });
+  }
+  function makeRegionTool(def) {
+    return Object.assign({
+      cursor: 'crosshair', optionSpec: REGION_OPTS(),
+      onOption() { this.clearPreview(true); },
+      clearPreview(again) { clearTimeout(this._pt); this._prev = null; this._R = null; view().requestRender(); if (again && this._lastP) this.hover(this._lastP); },
+      hover(p) {
+        this._lastP = p; if (!this.o.preview) return;
+        const d = doc(); if (!d) return;
+        const ix = Math.floor(p[0]), iy = Math.floor(p[1]);
+        if (ix < 0 || iy < 0 || ix >= d.w || iy >= d.h) { if (this._prev) this.clearPreview(); return; }
+        // still inside the region already shown: nothing to recompute
+        if (this._R && this._R.doc === d.id && this._R.ver === this.verKey() && this._R.core[iy * d.w + ix]) return;
+        clearTimeout(this._pt);
+        this._pt = setTimeout(() => {
+          const R = regionAt(this, p); if (!R) return;
+          R.doc = d.id; R.ver = this.verKey(); this._R = R;
+          this._prev = K.Sel.regionMask(R, [47, 191, 125]);
+          view().requestRender();
+        }, 70);
+      },
+      verKey() { const d = doc(), L = d && d.active; return [L && L.id, L && L.v, this.o.tolerance, this.o.expand, this.o.antialias, this.o.contiguous, this.o.allLayers, d && d.sel ? d.sel.v || 1 : 0].join('|'); },
+      deactivate() { this.clearPreview(); },
+      overlay(x, v, px) {
+        if (this._prev && this.o.preview && this._R && this._R.doc === doc().id) {
+          x.save(); x.globalAlpha = 0.45; x.imageSmoothingEnabled = false; x.drawImage(this._prev, 0, 0); x.restore();
+          const p = v.cursorPos;
+          if (p) { // how much the click will take
+            const n = this._R.count + this._R.edges.size, t = n.toLocaleString() + ' px';
+            x.save(); x.font = `${11 * px}px -apple-system, sans-serif`; const tw = x.measureText(t).width;
+            const lx = p[0] + 14 * px, ly = p[1] + 14 * px;
+            x.fillStyle = 'rgba(20,21,24,0.85)'; x.fillRect(lx, ly, tw + 10 * px, 17 * px);
+            x.fillStyle = '#fff'; x.textBaseline = 'middle'; x.fillText(t, lx + 5 * px, ly + 8.5 * px); x.restore();
+          }
+        }
+      },
+      down(e, p) {
+        const t = paintTarget(); if (!t) return; const d = doc(), L = t.L;
+        clearTimeout(this._pt); this._src = null;
+        const R = (this._R && this._R.doc === d.id && this._R.ver === this.verKey() && this._R.core[Math.floor(p[1]) * d.w + Math.floor(p[0])]) ? this._R : regionAt(this, p);
+        if (!R || !R.count) return;
+        this.apply(d, L, t, R);
+        this._R = null; this._prev = null; this._src = null;
+        d.touch(L); d.push(this.name); K.UI.refreshLayers(); view().requestRender();
+      },
+    }, def);
+  }
 
-  tools.bucket = {
-    id: 'bucket', name: 'Paint Bucket', hotkey: 'k', cursor: 'crosshair',
-    optionSpec: [{ key: 'tolerance', label: 'Tolerance', type: 'range', min: 0, max: 255, def: 32 }, { key: 'contiguous', label: 'Contiguous', type: 'check', def: true }, O.opacity(), O.allLayers()],
-    down(e, p) {
-      const t = paintTarget(); if (!t) return; const d = doc(), L = t.L;
-      const src = this.o.allLayers ? d.composite() : d.renderLayer(L);
-      let m = K.Sel.wandMask(d, src, p[0], p[1], this.o.tolerance, this.o.contiguous); if (!m) return;
-      m = K.Sel.featherCanvas(m, 0.5); K.Sel.clip(d, m);
-      const fill = U.clone(m), fx = U.ctx(fill); fx.globalCompositeOperation = 'source-in'; fx.fillStyle = t.target === 'mask' ? '#fff' : K.app.fg; fx.fillRect(0, 0, d.w, d.h);
-      if (t.target === 'mask') { const mm = d.writable(L, 'mask'), x = U.ctx(mm); const dark = U.lum(...U.hexToRgb(K.app.fg)) < 128; x.globalCompositeOperation = dark ? 'destination-out' : 'source-over'; x.globalAlpha = this.o.opacity / 100; x.drawImage(fill, 0, 0); }
-      else { const x = U.ctx(L.canvas); x.globalAlpha = this.o.opacity / 100; x.drawImage(fill, -L.x, -L.y); x.globalAlpha = 1; }
-      d.touch(L); d.push('Paint Bucket'); K.UI.refreshLayers();
+  // Magic Eraser: one click erases the similar-coloured area, un-mixing soft edges so no fringe is left
+  tools.magiceraser = makeRegionTool({
+    id: 'magiceraser', name: 'Magic Eraser', hotkey: 'e',
+    apply(d, L, t, R) {
+      if (t.target === 'mask') { toast('The Magic Eraser works on layer pixels'); return; }
+      const op = this.o.opacity / 100;
+      if (this.o.allLayers) { const m = K.Sel.regionMask(R); const x = U.ctx(L.canvas); x.save(); x.globalCompositeOperation = 'destination-out'; x.globalAlpha = op; x.drawImage(m, -L.x, -L.y); x.restore(); }
+      else K.Sel.applyRegion(d, L, R, null, op);
     },
-  };
+  });
+
+  // Paint Bucket: fills the similar-coloured area; soft edges are re-blended with the new colour
+  tools.bucket = makeRegionTool({
+    id: 'bucket', name: 'Paint Bucket', hotkey: 'k',
+    optionSpec: REGION_OPTS().map((o) => (o.key === 'allLayers' ? Object.assign({}, o, { def: true }) : o)),
+    apply(d, L, t, R) {
+      const op = this.o.opacity / 100, rgb = U.hexToRgb(K.app.fg);
+      if (t.target === 'mask') {
+        const m = K.Sel.regionMask(R), mm = d.writable(L, 'mask'), x = U.ctx(mm); const dark = U.lum(...rgb) < 128;
+        x.save(); x.globalCompositeOperation = dark ? 'destination-out' : 'source-over'; x.globalAlpha = op; x.drawImage(m, 0, 0); x.restore(); return;
+      }
+      const lockA = L.lockAlpha ? U.getData(L.canvas) : null;
+      if (this.o.allLayers) { const m = K.Sel.regionMask(R, rgb); const x = U.ctx(L.canvas); x.save(); x.globalAlpha = op; x.drawImage(m, -L.x, -L.y); x.restore(); }
+      else K.Sel.applyRegion(d, L, R, rgb, op);
+      if (lockA) { const now = U.getData(L.canvas); for (let i = 3; i < now.data.length; i += 4) { const a0 = lockA.data[i]; now.data[i] = a0; } U.ctx(L.canvas).putImageData(now, 0, 0); }
+    },
+  });
 
   tools.gradient = {
     id: 'gradient', name: 'Gradient', hotkey: 'g', cursor: 'crosshair',
@@ -1079,7 +1206,7 @@
   K.ToolHelpers = { pickLayer, duplicateLayer, pointInPoly, paintTarget, contentOnly };
   K.TOOL_ORDER = [
     ['move'], ['hand'], ['zoom'],
-    ['marquee', 'ellipse'], ['lasso', 'polylasso'], ['wand', 'quickselect'],
+    ['marquee', 'ellipse'], ['lasso', 'polylasso'], ['quickselect', 'selbrush', 'wand'],
     ['crop'], ['straighten'], ['eyedropper'],
     ['brush', 'pencil'], ['eraser', 'bgeraser', 'magiceraser'], ['bucket', 'gradient'],
     ['clone'], ['heal', 'healbrush'], ['redeye'], ['blur', 'sharpen', 'smudge'], ['dodge', 'burn', 'sponge'],

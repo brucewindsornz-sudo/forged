@@ -1,7 +1,7 @@
 {
   "name": "forged",
   "productName": "Forged",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "A layered photo editor for macOS",
   "main": "src/main.js",
   "author": "New Zee Build",
