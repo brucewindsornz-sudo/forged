@@ -1,0 +1,18 @@
+# Forged Web with Docker Compose:  docker compose -f web/docker-compose.yml up -d
+# Then open http://<server>:8080. For clipboard, save-in-place and computer fonts, serve it over HTTPS (see README).
+services:
+  forged:
+    image: ghcr.io/brucewindsornz-sudo/forged-web:latest
+    # build: { context: .., dockerfile: web/Dockerfile }   # or build it yourself
+    container_name: forged
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      TZ: Pacific/Auckland
+      # FORGED_PASSWORD: change-me      # optional sign-in (user "forged", or set FORGED_USER)
+      # FORGED_READ_ONLY: "true"        # browse and open only
+    volumes:
+      - ./forged-data:/data             # Library: Projects/ and Exports/ live here
+      # - /srv/photos:/data/Photos:ro   # show an existing photo folder in the Library
+      # - ~/.fonts:/fonts:ro            # extra fonts for the Type tool

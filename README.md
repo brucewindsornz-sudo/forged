@@ -2,6 +2,8 @@
 
 Forged is an original photo editor for macOS, built with Electron by New Zee Build. Its layout, tools and keyboard shortcuts follow the conventions of mainstream consumer photo editors, but all of its code, design and branding are original.
 
+**Web version:** Forged also runs in a browser from your own server or homelab (Docker, Kubernetes/k3s or plain Node). See [web/README.md](web/README.md).
+
 ## Install with Homebrew (recommended)
 
 ```sh

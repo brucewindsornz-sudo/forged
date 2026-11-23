@@ -259,7 +259,7 @@
   }
   async function readClipboard() {
     let url = null;
-    if (native) url = native.clipboardReadImage();
+    if (native) url = await native.clipboardReadImage();
     else if (navigator.clipboard && navigator.clipboard.read) { try { const items = await navigator.clipboard.read(); for (const it of items) { const t = it.types.find((x) => x.startsWith('image/')); if (t) { url = await U.blobToDataUrl(await it.getType(t)); break; } } } catch (e) { /* permission */ } }
     if (url) { const c = U.imageToCanvas(await U.loadImage(url)); if (app.clip && c.width === app.clip.w && c.height === app.clip.h) return app.clip; return { canvas: c }; }
     return app.clip;
@@ -911,7 +911,7 @@
     w.innerHTML = '';
     w.append(el('div', { class: 'welcome-card' },
       el('div', { class: 'logo' }, el('img', { src: 'forged-mark.png', width: 64, height: 64, alt: '' })),
-      el('h1', {}, 'Forged'), el('p', {}, 'Layered photo editing for your Mac'),
+      el('h1', {}, 'Forged'), el('p', {}, native && native.tagline || 'Layered photo editing for your Mac'),
       el('div', { class: 'welcome-actions' },
         el('button', { class: 'big', html: K.icon('open', 22) + '<span>Open Photo…</span>', onclick: () => app.run('open') }),
         el('button', { class: 'big', html: K.icon('plus', 22) + '<span>New Blank…</span>', onclick: () => app.run('new') }),

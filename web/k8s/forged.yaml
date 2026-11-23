@@ -1,0 +1,91 @@
+# Forged Web on Kubernetes (tested on k3s):  kubectl apply -f web/k8s/forged.yaml
+# LAN address via Traefik: http://forged.<node-ip>.nip.io  (edit the Ingress host to suit)
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: forged
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: forged-data
+  namespace: forged
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: forged
+  namespace: forged
+  labels: { app: forged }
+spec:
+  replicas: 1
+  strategy: { type: Recreate }   # one writer for the Library volume
+  selector:
+    matchLabels: { app: forged }
+  template:
+    metadata:
+      labels: { app: forged }
+    spec:
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+      containers:
+        - name: forged
+          image: ghcr.io/brucewindsornz-sudo/forged-web:latest
+          imagePullPolicy: Always
+          ports:
+            - { name: http, containerPort: 8080 }
+          env:
+            - { name: TZ, value: Pacific/Auckland }
+          volumeMounts:
+            - { name: data, mountPath: /data }
+          readinessProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 30
+          resources:
+            requests: { cpu: 20m, memory: 48Mi }
+            limits: { memory: 384Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: forged-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: forged
+  namespace: forged
+spec:
+  selector: { app: forged }
+  ports:
+    - { name: http, port: 80, targetPort: http }
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: forged
+  namespace: forged
+  annotations:
+    # big projects: let uploads through (Traefik has no body limit by default; this is for nginx-ingress)
+    nginx.ingress.kubernetes.io/proxy-body-size: "1024m"
+spec:
+  rules:
+    - host: forged.10.10.10.21.nip.io
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service: { name: forged, port: { name: http } }

@@ -1,0 +1,13 @@
+{
+  "name": "forged-web",
+  "version": "1.0.2",
+  "description": "Forged photo editor for the browser, self-hosted",
+  "private": true,
+  "license": "MIT",
+  "main": "server.js",
+  "scripts": {
+    "build": "node build.js",
+    "start": "node build.js && node server.js"
+  },
+  "engines": { "node": ">=18" }
+}

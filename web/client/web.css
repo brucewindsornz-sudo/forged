@@ -1,0 +1,33 @@
+/* Forged Web — menu bar and Library styles, on top of the app's own theme */
+body.web #titlebar { padding-left: 12px; -webkit-app-region: no-drag; }
+#menubar { display: flex; align-items: center; gap: 1px; padding-right: 10px; margin-right: 6px; border-right: 1px solid var(--line); }
+.wm-top { border: 0; background: none; color: var(--fg2); height: 26px; padding: 0 9px; border-radius: 5px; font-size: 12.5px; }
+.wm-top:hover, .wm-top.on { background: var(--bg3); color: var(--fg); }
+.wm-drop { position: fixed; z-index: 3000; min-width: 220px; max-height: calc(100vh - 12px); overflow-y: auto; padding: 5px; background: var(--bg2); border: 1px solid var(--line2); border-radius: 8px; box-shadow: 0 10px 34px rgba(0, 0, 0, .5); }
+.wm-drop hr { border: 0; border-top: 1px solid var(--line); margin: 4px 6px; }
+.wm-item { display: flex; align-items: center; gap: 24px; height: 25px; padding: 0 10px; border-radius: 5px; color: var(--fg); white-space: nowrap; }
+.wm-item span { flex: 1; }
+.wm-item kbd, .wm-item em { font: 11.5px var(--font); font-style: normal; color: var(--fg3); }
+.wm-item:hover, .wm-item.on { background: var(--accent); color: #fff; }
+.wm-item:hover kbd, .wm-item:hover em, .wm-item.on em { color: rgba(255, 255, 255, .85); }
+@media (max-width: 1180px) { .brand { padding-right: 8px; } .wm-top { padding: 0 6px; } }
+@media (max-width: 1060px) { .brand { font-size: 0; gap: 0; } }
+
+/* Library */
+.lib { display: flex; flex-direction: column; gap: 8px; }
+.lib-crumbs { display: flex; align-items: center; gap: 4px; color: var(--fg3); flex-wrap: wrap; }
+.lib-crumbs .crumb { border: 0; background: none; color: var(--fg2); padding: 2px 6px; border-radius: 4px; }
+.lib-crumbs .crumb:hover { background: var(--bg3); color: var(--fg); }
+.lib-list { height: 360px; overflow-y: auto; border: 1px solid var(--line); border-radius: 6px; background: var(--bg1); padding: 4px; }
+.lib-row { display: flex; align-items: center; gap: 10px; padding: 4px 8px; border-radius: 5px; outline: none; }
+.lib-row:hover { background: var(--bg3); }
+.lib-row.on { background: var(--accent-dim); box-shadow: inset 0 0 0 1px var(--accent); }
+.lib-thumb, .lib-ico { width: 40px; height: 32px; flex: none; border-radius: 4px; object-fit: cover; background: var(--bg3); display: flex; align-items: center; justify-content: center; color: var(--fg2); }
+.lib-ico.proj { background: var(--accent-dim); color: var(--accent2); font-weight: 700; }
+.lib-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg); }
+.lib-meta { color: var(--fg3); font-size: 11.5px; white-space: nowrap; }
+.lib-del { border: 0; background: none; color: var(--fg3); font-size: 16px; line-height: 1; padding: 2px 6px; border-radius: 4px; visibility: hidden; }
+.lib-row:hover .lib-del { visibility: visible; }
+.lib-del:hover { background: var(--danger); color: #fff; }
+.lib-empty { padding: 40px; text-align: center; color: var(--fg3); }
+.lib-note { min-height: 16px; }

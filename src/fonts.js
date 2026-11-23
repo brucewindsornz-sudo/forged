@@ -10,6 +10,7 @@ const EXT = new Set(['.ttf', '.otf', '.ttc', '.otc', '.dfont']);
 
 function fontDirs() {
   const h = os.homedir();
+  if (process.env.FORGED_FONT_DIRS) return process.env.FORGED_FONT_DIRS.split(path.delimiter).filter(Boolean); // web server: folders chosen by the host
   if (process.platform === 'darwin') {
     return [
       '/System/Library/Fonts', '/Library/Fonts', path.join(h, 'Library/Fonts'), '/Network/Library/Fonts',
