@@ -1,0 +1,62 @@
+name: Release
+
+# Push a tag like v1.0.1 (matching "version" in package.json) to build the Mac apps,
+# publish a GitHub release and update the Homebrew cask in Casks/forged.rb.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Build
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+        run: npx electron-builder --mac zip --arm64 --x64 --publish never
+      - name: Sign (ad hoc) and package
+        run: |
+          set -euo pipefail
+          V=$(node -p "require('./package.json').version")
+          echo "V=$V" >> "$GITHUB_ENV"
+          mkdir -p rel
+          for pair in "mac-arm64:arm64" "mac:x64"; do
+            dir=${pair%%:*}; arch=${pair##*:}
+            codesign --force --deep --sign - "dist/$dir/Forged.app"
+            ditto -c -k --keepParent "dist/$dir/Forged.app" "rel/Forged-$V-$arch-mac.zip"
+          done
+          shasum -a 256 rel/*.zip
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if gh release view "v$V" >/dev/null 2>&1; then
+            gh release upload "v$V" rel/*.zip --clobber
+          else
+            gh release create "v$V" rel/*.zip --title "Forged $V" --generate-notes
+          fi
+      - name: Update Homebrew cask
+        run: |
+          set -euo pipefail
+          ARM=$(shasum -a 256 "rel/Forged-$V-arm64-mac.zip" | cut -d' ' -f1)
+          X64=$(shasum -a 256 "rel/Forged-$V-x64-mac.zip" | cut -d' ' -f1)
+          sed -i '' -e "s/^  version \".*\"/  version \"$V\"/" \
+                    -e "s/^  sha256 arm:   \".*\",/  sha256 arm:   \"$ARM\",/" \
+                    -e "s/^         intel: \".*\"/         intel: \"$X64\"/" Casks/forged.rb
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -am "Cask: forged $V" || echo "Cask already up to date"
+          git push origin HEAD:main
