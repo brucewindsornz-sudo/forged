@@ -5,9 +5,10 @@ Forged is an original photo editor for macOS, built with Electron by New Zee Bui
 ## Install with Homebrew (recommended)
 
 ```sh
-brew tap brucewindsornz-sudo/forged https://github.com/brucewindsornz-sudo/forged
-brew install --cask forged
+brew install --cask brucewindsornz-sudo/forged/forged
 ```
+
+This uses the [homebrew-forged](https://github.com/brucewindsornz-sudo/homebrew-forged) tap. That tap copies the cask from `Casks/forged.rb` in this repo every few hours.
 
 To update later:
 
@@ -21,7 +22,7 @@ To uninstall, run `brew uninstall --cask forged`. Add `--zap` to remove its sett
 
 1. Change `"version"` in `package.json`, for example to `1.0.1`, and commit.
 2. Tag and push: `git tag v1.0.1 && git push origin main v1.0.1`.
-3. The Release workflow builds both Mac apps, publishes the GitHub release and updates `Casks/forged.rb`. After that, `brew upgrade --cask forged` installs the new version.
+3. The Release workflow builds both Mac apps, publishes the GitHub release and updates `Casks/forged.rb`. The tap picks up the change within about three hours. You can run its Sync cask workflow to copy it straight away. After that, `brew upgrade --cask forged` installs the new version.
 
 ## Install the ready-made app manually
 
