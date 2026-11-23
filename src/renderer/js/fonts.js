@@ -44,6 +44,16 @@
     })();
     return false;
   };
+  // Wait for every font a document uses (so off-screen conversions render the right type)
+  F.ensureForDoc = async (d) => {
+    const tps = d.layers.filter((L) => L.type === 'text' && L.tp && L.tp.ps).map((L) => L.tp);
+    if (!tps.length) return;
+    if (!F.loaded) { try { await F.load(); } catch (e) { /* ignore */ } }
+    tps.forEach((tp) => F.ensure(tp));
+    const t0 = Date.now();
+    while (tps.some((tp) => F.faces.get(tp.ps) === 'loading') && Date.now() - t0 < 5000) await new Promise((r) => setTimeout(r, 50));
+    for (const L of d.layers) if (L.type === 'text') { L._text = null; L._textKey = null; }
+  };
   F.refreshText = (ps) => {
     if (!K.app) return;
     for (const d of K.app.docs || []) {

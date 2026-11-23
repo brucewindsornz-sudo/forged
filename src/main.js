@@ -3,6 +3,7 @@ const { app, BrowserWindow, Menu, dialog, ipcMain, shell, nativeTheme } = requir
 const path = require('path');
 const fs = require('fs');
 const Fonts = require('./fonts');
+const { stripImage } = require('./strip');
 
 let win = null;
 let pendingOpen = [];
@@ -71,6 +72,7 @@ function buildMenu() {
       item('Save Project', 'save', 'CmdOrCtrl+S'),
       item('Save Project As…', 'saveAs', 'CmdOrCtrl+Shift+S'),
       item('Export…', 'export', 'CmdOrCtrl+Alt+Shift+S'),
+      item('Convert Forged Projects…', 'convert'),
       { type: 'separator' },
       item('Close Document', 'closeDoc', 'CmdOrCtrl+W'),
     ] },
@@ -307,6 +309,32 @@ ipcMain.handle('dialog:save', async (_e, { defaultName, filters, data, encoding,
   if (encoding === 'base64') fs.writeFileSync(file, Buffer.from(data, 'base64'));
   else fs.writeFileSync(file, data, 'utf8');
   app.addRecentDocument(file);
+  return { path: file, name: path.basename(file) };
+});
+
+// Exports: always written with metadata removed
+ipcMain.handle('export:save', async (_e, { defaultName, filters, base64 }) => {
+  const r = await dialog.showSaveDialog(win, { defaultPath: defaultName, filters });
+  if (r.canceled || !r.filePath) return null;
+  const out = stripImage(Buffer.from(base64, 'base64'));
+  fs.writeFileSync(r.filePath, out);
+  return { path: r.filePath, name: path.basename(r.filePath), bytes: out.length };
+});
+ipcMain.handle('dialog:openProjects', async () => {
+  const r = await dialog.showOpenDialog(win, { properties: ['openFile', 'multiSelections'], filters: [{ name: 'Forged Projects', extensions: ['forged', 'kauri'] }] });
+  if (r.canceled) return [];
+  return r.filePaths.map(readForRenderer);
+});
+ipcMain.handle('dialog:pickFolder', async (_e, { defaultPath } = {}) => {
+  const r = await dialog.showOpenDialog(win, { properties: ['openDirectory', 'createDirectory'], defaultPath, buttonLabel: 'Convert Here' });
+  return r.canceled || !r.filePaths[0] ? null : r.filePaths[0];
+});
+ipcMain.handle('export:write', async (_e, { folder, name, base64 }) => {
+  const ext = path.extname(name), base = path.basename(name, ext);
+  let file = path.join(folder, name), n = 2;
+  while (fs.existsSync(file)) file = path.join(folder, `${base} ${n++}${ext}`); // never overwrite
+  const out = stripImage(Buffer.from(base64, 'base64'));
+  fs.writeFileSync(file, out);
   return { path: file, name: path.basename(file) };
 });
 

@@ -2,9 +2,9 @@ name: Release
 
 # Push a tag like v1.0.1 (matching "version" in package.json) to build the Mac apps,
 # publish a GitHub release and update the Homebrew cask in Casks/forged.rb.
+# Run by hand from the Actions tab (tag pushes no longer start it, because the
+# hosted macOS runner is not available on this account yet).
 on:
-  push:
-    tags: ["v*"]
   workflow_dispatch:
 
 permissions:

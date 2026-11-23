@@ -501,7 +501,7 @@
     id: 'selbrush', name: 'Selection Brush', hotkey: 'a', cursor: 'none',
     optionSpec: [
       { key: 'mode', type: 'buttons', def: 'add', options: [['add', 'Add'], ['sub', 'Subtract']] },
-      O.size(40, 1000), O.hardness(100),
+      O.size(40, 1000), O.hardness(100), O.feather(),
       { key: 'view', label: 'View', type: 'buttons', def: 'sel', options: [['sel', 'Selection'], ['mask', 'Mask']] },
       { key: 'overlay', label: 'Overlay', type: 'range', min: 10, max: 90, def: 50, unit: '%' },
       { key: 'hint', type: 'hint', label: 'Alt paints the opposite way' },
@@ -523,7 +523,7 @@
     move(e, p) { if (this.acc) this.stamp(p); },
     up() {
       if (!this.acc) return; const d = doc();
-      K.Sel.combine(d, this.acc, this.adding ? 'add' : 'sub');
+      K.Sel.combine(d, this.acc, this.adding ? 'add' : 'sub', this.o.feather || 0);
       this.acc = null; d.push('Selection Brush'); view().requestRender();
     },
     cancel() { this.acc = null; },
@@ -540,7 +540,7 @@
         tx.fillStyle = '#fff'; tx.fillRect(0, 0, d.w, d.h);
         tx.globalCompositeOperation = 'destination-out';
         if (d.sel) tx.drawImage(d.sel.canvas, 0, 0);
-        if (this.acc) { tx.globalCompositeOperation = this.adding ? 'destination-out' : 'source-over'; tx.drawImage(this.acc, 0, 0); }
+        if (this.acc) { tx.globalCompositeOperation = this.adding ? 'destination-out' : 'source-over'; if (this.o.feather > 0) tx.filter = `blur(${this.o.feather}px)`; tx.drawImage(this.acc, 0, 0); tx.filter = 'none'; }
         tx.globalCompositeOperation = 'source-in'; tx.fillStyle = '#e0242a'; tx.fillRect(0, 0, d.w, d.h);
         this.mcache = { c: t, sel: this.acc ? undefined : d.sel, doc: d };
         }
@@ -548,7 +548,7 @@
       } else if (this.acc) {
         const t = U.clone(this.acc), tx = U.ctx(t); tx.globalCompositeOperation = 'source-in';
         tx.fillStyle = this.adding ? '#3d8bff' : '#ff3b30'; tx.fillRect(0, 0, t.width, t.height);
-        x.save(); x.globalAlpha = 0.4; x.drawImage(t, 0, 0); x.restore();
+        x.save(); x.globalAlpha = 0.4; if (this.o.feather > 0) x.filter = `blur(${this.o.feather * ((d.view && d.view.zoom) || 1)}px)`; x.drawImage(t, 0, 0); x.restore();
       }
       brushCursor(x, v, px, this.o.size);
     },

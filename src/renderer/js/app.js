@@ -101,9 +101,10 @@
     });
     return JSON.stringify({ app: 'Forged', version: 1, w: d.w, h: d.h, ppi: d.ppi, origin: d.origin, guides: d.guides, activeId: d.activeId, layers });
   }
-  app.loadProject = async (text, name, path) => {
-    const j = JSON.parse(text); if (j.app !== 'Forged' && j.app !== 'Forged') throw new Error('Not a Forged project');
-    const d = new K.Doc(j.w, j.h, (name || 'Project').replace(/\.kauri$/, '')); d.path = path || null; d.guides = j.guides || []; d.ppi = j.ppi || 72; d.origin = j.origin || [0, 0];
+  // Build a document from a project file without opening it (used by Open and by Convert)
+  app.buildProject = async (text, name, path) => {
+    const j = JSON.parse(text); if (j.app !== 'Forged' && j.app !== 'Kauri Photo') throw new Error('Not a Forged project');
+    const d = new K.Doc(j.w, j.h, (name || 'Project').replace(/\.(forged|kauri)$/i, '')); d.path = path || null; d.guides = j.guides || []; d.ppi = j.ppi || 72; d.origin = j.origin || [0, 0];
     const load = async (u) => U.imageToCanvas(await U.loadImage(u));
     for (const r of j.layers) {
       const L = Lr.newLayer(r);
@@ -112,7 +113,13 @@
       if (r.src) L.src = await load(r.src);
       d.layers.push(L);
     }
-    d.activeId = j.activeId; d.push('Open Project'); d.modified = false; app.addDoc(d);
+    d.activeId = j.activeId;
+    if (K.Fonts && K.Fonts.ensureForDoc) { try { await K.Fonts.ensureForDoc(d); } catch (e) { /* fall back to default font */ } }
+    return d;
+  };
+  app.loadProject = async (text, name, path) => {
+    const d = await app.buildProject(text, name, path);
+    d.push('Open Project'); d.modified = false; app.addDoc(d);
   };
   app.saveProject = async (d, saveAs) => {
     d = d || app.doc; if (!d) return false;
@@ -123,27 +130,60 @@
     } else U.download('data:application/json;base64,' + btoa(unescape(encodeURIComponent(data))), d.name + '.forged');
     d.modified = false; UI.refreshTabs(); UI.toast('Project saved'); return true;
   };
+  // Encode a document as an image. Metadata is stripped again when the file is written.
+  function encodeDoc(d, o) {
+    let out = d.composite();
+    if (o.scale !== 100) out = U.resample(out, Math.max(1, Math.round(d.w * o.scale / 100)), Math.max(1, Math.round(d.h * o.scale / 100)));
+    if (o.format === 'jpeg') { const c = U.canvas(out.width, out.height), x = U.ctx(c); x.fillStyle = o.matte; x.fillRect(0, 0, c.width, c.height); x.drawImage(out, 0, 0); out = c; }
+    return { url: out.toDataURL('image/' + o.format, o.quality / 100), ext: o.format === 'jpeg' ? 'jpg' : o.format };
+  }
+  app.encodeDoc = encodeDoc;
+  app.serialize = serialize;
+  const META_NOTE = 'Metadata is always removed: camera and location (EXIF), XMP, comments, software tags, timestamps, DPI and colour profiles.';
+  function exportFields(d, est, withWebp) {
+    return [
+      { key: 'format', label: 'Format', type: 'select', value: K.prefs.exportFormat || 'jpeg', options: [['jpeg', 'JPEG'], ['png', 'PNG (keeps transparency)'], ...(withWebp ? [['webp', 'WebP']] : [])] },
+      { key: 'quality', label: 'Quality (JPEG)', type: 'range', value: K.prefs.exportQuality, min: 10, max: 100, unit: '%' },
+      { key: 'scale', label: 'Size', type: 'range', value: 100, min: 5, max: 400, unit: '%', onChange: (v) => { if (d && est) est.textContent = `${Math.round(d.w * v / 100)} × ${Math.round(d.h * v / 100)} px`; } },
+      { key: 'matte', label: 'Background (JPEG)', type: 'color', value: '#ffffff' },
+      ...(est ? [{ type: 'html', node: est }] : []),
+      { type: 'html', node: el('div', { class: 'hint' }, META_NOTE) },
+    ];
+  }
   app.exportDialog = async () => {
     const d = app.doc; if (!d) return;
-    const est = el('div', { class: 'hint', id: 'export-est' }, '');
-    const vals = await UI.form('Export Image', [
-      { key: 'format', label: 'Format', type: 'select', value: 'jpeg', options: [['jpeg', 'JPEG'], ['png', 'PNG (keeps transparency)'], ['webp', 'WebP']] },
-      { key: 'quality', label: 'Quality', type: 'range', value: K.prefs.exportQuality, min: 10, max: 100, unit: '%' },
-      { key: 'scale', label: 'Size', type: 'range', value: 100, min: 5, max: 400, unit: '%', onChange: (v) => { est.textContent = `${Math.round(d.w * v / 100)} × ${Math.round(d.h * v / 100)} px`; } },
-      { key: 'matte', label: 'Background (JPEG)', type: 'color', value: '#ffffff' },
-      { type: 'html', node: est },
-    ], 'Export…');
+    const est = el('div', { class: 'hint', id: 'export-est' }, `${d.w} × ${d.h} px`);
+    const vals = await UI.form('Export Image', exportFields(d, est, true), 'Export…');
     if (!vals) return;
-    est.textContent = '';
-    K.prefs.exportQuality = vals.quality; savePrefs();
-    const comp = d.composite(); let out = comp;
-    if (vals.scale !== 100) out = U.resample(comp, d.w * vals.scale / 100, d.h * vals.scale / 100);
-    if (vals.format === 'jpeg') { const c = U.canvas(out.width, out.height), x = U.ctx(c); x.fillStyle = vals.matte; x.fillRect(0, 0, c.width, c.height); x.drawImage(out, 0, 0); out = c; }
-    const mime = 'image/' + vals.format, url = out.toDataURL(mime, vals.quality / 100), ext = vals.format === 'jpeg' ? 'jpg' : vals.format;
+    K.prefs.exportQuality = vals.quality; K.prefs.exportFormat = vals.format; savePrefs();
+    const { url, ext } = encodeDoc(d, vals);
     if (native) {
-      const r = await native.save({ defaultName: `${d.name}.${ext}`, filters: [{ name: vals.format.toUpperCase(), extensions: [ext] }], data: U.dataUrlToBase64(url), encoding: 'base64' });
-      if (r) UI.toast(`Exported ${r.name}`);
+      const r = await native.exportImage({ defaultName: `${d.name}.${ext}`, filters: [{ name: ext.toUpperCase(), extensions: [ext] }], base64: U.dataUrlToBase64(url) });
+      if (r) UI.toast(`Exported ${r.name} (metadata removed)`);
     } else U.download(url, `${d.name}.${ext}`);
+  };
+  // Convert one or more .forged projects straight to PNG or JPEG, without opening them
+  app.convertProjects = async (files) => {
+    if (!files) files = native ? await native.openProjects() : (await pickFiles(true)).filter((f) => f.kind === 'project');
+    files = (files || []).filter((f) => f.kind === 'project');
+    if (!files.length) return;
+    const vals = await UI.form(`Convert ${files.length} Project${files.length > 1 ? 's' : ''}`, exportFields(null, null, false), 'Choose Folder…');
+    if (!vals) return;
+    K.prefs.exportQuality = vals.quality; K.prefs.exportFormat = vals.format; savePrefs();
+    let folder = null;
+    if (native) { folder = await native.pickFolder({ defaultPath: files[0].path ? files[0].path.replace(/[\\/][^\\/]*$/, '') : undefined }); if (!folder) return; }
+    let ok = 0; const failed = [];
+    for (const f of files) {
+      UI.busy && UI.busy(`Converting ${f.name}…`);
+      try {
+        const d = await app.buildProject(f.text, f.name, f.path);
+        const { url, ext } = encodeDoc(d, vals), name = `${d.name}.${ext}`;
+        if (native) await native.writeExport({ folder, name, base64: U.dataUrlToBase64(url) }); else U.download(url, name);
+        ok++;
+      } catch (e) { failed.push(f.name); }
+    }
+    UI.busy && UI.busy(false);
+    UI.toast(`Converted ${ok} of ${files.length} to ${vals.format === 'jpeg' ? 'JPEG' : 'PNG'} (metadata removed)` + (failed.length ? ` · could not read ${failed.join(', ')}` : ''));
   };
 
   // ---------- pixel operation helpers ----------
@@ -238,7 +278,7 @@
   app.run = async (cmd, arg) => {
     if (U.isTyping() && editCmds[cmd]) { document.execCommand(editCmds[cmd]); return; }
     const fn = C[cmd]; if (!fn) { console.warn('Unknown command', cmd); return; }
-    const needsDoc = !['new', 'open', 'collage', 'newFromClipboard', 'shortcuts', 'preferences', 'swapColors', 'resetColors', 'place'].includes(cmd);
+    const needsDoc = !['new', 'open', 'collage', 'newFromClipboard', 'shortcuts', 'preferences', 'swapColors', 'resetColors', 'place', 'convert'].includes(cmd);
     if (needsDoc && !app.doc) { UI.toast('Open or create a document first'); return; }
     try { await fn(arg); } catch (e) { console.error(e); UI.toast('Something went wrong: ' + e.message); }
     app.view.requestRender(); UI.updateStatus();
@@ -290,6 +330,7 @@
   C.save = () => app.saveProject(app.doc, false);
   C.saveAs = () => app.saveProject(app.doc, true);
   C.export = () => app.exportDialog();
+  C.convert = () => app.convertProjects();
   C.closeDoc = () => app.closeDoc();
   C.collage = () => K.Collage.dialog();
 
@@ -875,7 +916,8 @@
         el('button', { class: 'big', html: K.icon('open', 22) + '<span>Open Photo…</span>', onclick: () => app.run('open') }),
         el('button', { class: 'big', html: K.icon('plus', 22) + '<span>New Blank…</span>', onclick: () => app.run('new') }),
         el('button', { class: 'big', html: K.icon('collage', 22) + '<span>Photo Collage…</span>', onclick: () => app.run('collage') })),
-      el('p', { class: 'hint' }, 'Or drop photos anywhere in this window.')));
+      el('p', { class: 'hint' }, 'Or drop photos anywhere in this window.'),
+      el('p', { class: 'hint' }, el('a', { href: '#', class: 'link', onclick: (e) => { e.preventDefault(); app.run('convert'); } }, 'Convert Forged projects to PNG or JPEG…'))));
   }
 
   window.addEventListener('DOMContentLoaded', () => {
