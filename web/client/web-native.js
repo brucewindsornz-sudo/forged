@@ -9,9 +9,10 @@
   const el = (...a) => window.K.U.el(...a);
   const FSA = typeof window.showOpenFilePicker === 'function';
   const IMG_EXT = ['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp', 'avif'];
-  const MIME = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', gif: 'image/gif', bmp: 'image/bmp', avif: 'image/avif', forged: 'application/json', kauri: 'application/json' };
+  const MIME = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', gif: 'image/gif', bmp: 'image/bmp', avif: 'image/avif', pdf: 'application/pdf', forged: 'application/json', kauri: 'application/json' };
   const extOf = (n) => (String(n).match(/\.([^.]+)$/) || [, ''])[1].toLowerCase();
   const isProject = (n) => /\.(forged|kauri)$/i.test(n);
+  const isPdf = (n) => /\.pdf$/i.test(n);
   const handles = new Map(); let hid = 0; // 'fsa:N' -> FileSystemFileHandle / FileSystemDirectoryHandle
   const keep = (h) => { const id = 'fsa:' + (++hid); handles.set(id, h); return id; };
 
@@ -35,6 +36,7 @@
   const bytesToDataUrl = (u, mime) => blobToDataUrl(new Blob([u], { type: mime }));
   async function readFileObj(file, path) {
     if (isProject(file.name)) return { kind: 'project', name: file.name, path, text: await file.text() };
+    if (isPdf(file.name) || file.type === 'application/pdf') return { kind: 'pdf', name: file.name, path: null, bytes: new Uint8Array(await file.arrayBuffer()) };
     const ext = extOf(file.name);
     return { kind: 'image', name: file.name, path, dataUrl: await bytesToDataUrl(new Uint8Array(await file.arrayBuffer()), MIME[ext] || file.type || 'application/octet-stream') };
   }
@@ -84,19 +86,19 @@
   }
 
   // ---------- this computer ----------
-  const ACCEPT = { images: { 'image/*': IMG_EXT.map((e) => '.' + e) }, projects: { 'application/x-forged': ['.forged', '.kauri'] } };
+  const ACCEPT = { images: { 'image/*': IMG_EXT.map((e) => '.' + e) }, pdf: { 'application/pdf': ['.pdf'] }, projects: { 'application/x-forged': ['.forged', '.kauri'] } };
   async function pickLocal({ multi = true, projectsOnly = false } = {}) {
     if (FSA) {
       let hs;
       const types = projectsOnly ? [{ description: 'Forged Projects', accept: ACCEPT.projects }]
-        : [{ description: 'Images & Projects', accept: Object.assign({}, ACCEPT.images, ACCEPT.projects) }];
+        : [{ description: 'Images, PDFs & Projects', accept: Object.assign({}, ACCEPT.images, ACCEPT.pdf, ACCEPT.projects) }];
       try { hs = await window.showOpenFilePicker({ multiple: multi, types, excludeAcceptAllOption: false, id: 'forged-open' }); } catch (e) { return []; }
       const out = [];
       for (const h of hs) { const f = await h.getFile(); out.push(await readFileObj(f, isProject(f.name) ? keep(h) : null)); }
       return out;
     }
     return new Promise((res) => {
-      const i = document.createElement('input'); i.type = 'file'; i.multiple = multi; i.accept = projectsOnly ? '.forged,.kauri' : 'image/*,.forged,.kauri';
+      const i = document.createElement('input'); i.type = 'file'; i.multiple = multi; i.accept = projectsOnly ? '.forged,.kauri' : 'image/*,.pdf,application/pdf,.forged,.kauri';
       i.onchange = async () => { const out = []; for (const f of i.files) out.push(await readFileObj(f, null)); res(out); };
       i.oncancel = () => res([]);
       i.click();
@@ -171,6 +173,7 @@
         const p = (cwd ? cwd + '/' : '') + e.name;
         const thumb = e.type === 'dir' ? el('div', { class: 'lib-ico', html: K().icon ? K().icon('open', 20) : '' })
           : isProject(e.name) ? el('div', { class: 'lib-ico proj' }, 'F')
+          : isPdf(e.name) ? el('div', { class: 'lib-ico proj' }, 'PDF')
           : el('img', { class: 'lib-thumb', loading: 'lazy', src: 'api/file?path=' + encodeURIComponent(p), alt: '' });
         const row = el('div', { class: 'lib-row' + (e.type === 'dir' ? ' dir' : ''), tabindex: 0 }, thumb,
           el('span', { class: 'lib-name' }, e.name), el('span', { class: 'lib-meta' }, e.type === 'dir' ? 'Folder' : `${fmtSize(e.size)} · ${fmtDate(e.mtime)}`));
@@ -193,6 +196,7 @@
       for (const p of chosen) {
         const name = p.split('/').pop(); const r = await libGet(p);
         if (isProject(name)) out.push({ kind: 'project', name, path: 'lib:' + p, text: await r.text() });
+        else if (isPdf(name)) out.push({ kind: 'pdf', name, path: null, bytes: new Uint8Array(await r.arrayBuffer()) });
         else out.push({ kind: 'image', name, path: 'lib:' + p, dataUrl: await blobToDataUrl(await r.blob()) });
       }
       return out;
@@ -295,8 +299,9 @@
     run: (cmd, arg) => listeners.menu.forEach((fn) => fn(cmd, arg)),
     openLibrary: async () => { const files = await libraryDialog(); if (files.length) listeners.open.forEach((fn) => files.forEach((f) => fn(f))); },
     placeFromLibrary: async () => {
-      const files = (await libraryDialog({ title: 'Place from Library' })).filter((f) => f.kind === 'image');
+      const all = await libraryDialog({ title: 'Place from Library' }), files = all.filter((f) => f.kind === 'image');
       const app = K().app, U = K().U;
+      for (const f of all.filter((x) => x.kind === 'pdf')) { try { await K().PDF.place(f); } catch (e) { UI().toast(`Could not place ${f.name}: ${e.message}`); } }
       for (const f of files) app.placeCanvas(U.imageToCanvas(await U.loadImage(f.dataUrl)), f.name.replace(/\.[^.]+$/, ''));
     },
     convertFromLibrary: async () => { const files = await libraryDialog({ projectsOnly: true, title: 'Convert Projects from Library', start: 'Projects' }); if (files.length) K().app.convertProjects(files); },

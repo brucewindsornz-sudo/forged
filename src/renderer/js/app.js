@@ -59,6 +59,7 @@
     for (const f of files) {
       try {
         if (f.kind === 'project') await app.loadProject(f.text, f.name, f.path);
+        else if (f.kind === 'pdf' || K.PDF.isPdfName(f.name)) await K.PDF.open(f);
         else { const img = await U.loadImage(f.dataUrl); app.docFromCanvas(U.imageToCanvas(img), f.name.replace(/\.[^.]+$/, ''), f.path, U.readPPI(f.dataUrl)); }
       } catch (e) { UI.toast(`Could not open ${f.name}: ${e.message}`); }
     }
@@ -66,10 +67,10 @@
   app.openFiles = openFiles;
   function browserPick(multi) {
     return new Promise((res) => {
-      const i = el('input', { type: 'file', accept: 'image/*,.forged,.kauri', multiple: multi });
+      const i = el('input', { type: 'file', accept: 'image/*,.pdf,application/pdf,.forged,.kauri', multiple: multi });
       i.onchange = async () => {
         const out = [];
-        for (const f of i.files) { if (/\.(forged|kauri)$/i.test(f.name)) out.push({ kind: 'project', name: f.name, text: await f.text() }); else out.push({ kind: 'image', name: f.name, dataUrl: await U.blobToDataUrl(f) }); }
+        for (const f of i.files) { if (/\.(forged|kauri)$/i.test(f.name)) out.push({ kind: 'project', name: f.name, text: await f.text() }); else if (K.PDF.isPdfName(f.name)) out.push({ kind: 'pdf', name: f.name, bytes: new Uint8Array(await f.arrayBuffer()) }); else out.push({ kind: 'image', name: f.name, dataUrl: await U.blobToDataUrl(f) }); }
         res(out);
       };
       i.click();
@@ -142,7 +143,7 @@
   const META_NOTE = 'Metadata is always removed: camera and location (EXIF), XMP, comments, software tags, timestamps, DPI and colour profiles.';
   function exportFields(d, est, withWebp) {
     return [
-      { key: 'format', label: 'Format', type: 'select', value: K.prefs.exportFormat || 'jpeg', options: [['jpeg', 'JPEG'], ['png', 'PNG (keeps transparency)'], ...(withWebp ? [['webp', 'WebP']] : [])] },
+      { key: 'format', label: 'Format', type: 'select', value: K.prefs.exportFormat || 'jpeg', options: [['jpeg', 'JPEG'], ['png', 'PNG (keeps transparency)'], ...(withWebp ? [['webp', 'WebP'], ['pdf', 'PDF…']] : [])], onChange: (v, _vals, body) => { if (v === 'pdf' && body) { const b = body.closest('.modal'); const cancel = b && [...b.querySelectorAll('footer .btn')].find((x) => !x.classList.contains('primary')); if (cancel) cancel.click(); setTimeout(() => K.PDF.exportDialog(), 0); } } },
       { key: 'quality', label: 'Quality (JPEG)', type: 'range', value: K.prefs.exportQuality, min: 10, max: 100, unit: '%' },
       { key: 'scale', label: 'Size', type: 'range', value: 100, min: 5, max: 400, unit: '%', onChange: (v) => { if (d && est) est.textContent = `${Math.round(d.w * v / 100)} × ${Math.round(d.h * v / 100)} px`; } },
       { key: 'matte', label: 'Background (JPEG)', type: 'color', value: '#ffffff' },
@@ -323,13 +324,15 @@
   };
   C.open = async () => openFiles(await pickFiles(true));
   C.place = async () => {
-    const files = (await pickFiles(true)).filter((f) => f.kind === 'image');
+    const all = await pickFiles(true), files = all.filter((f) => f.kind === 'image');
+    for (const f of all.filter((x) => x.kind === 'pdf')) { try { await K.PDF.place(f); } catch (e) { UI.toast(`Could not place ${f.name}: ${e.message}`); } }
     for (const f of files) { const c = U.imageToCanvas(await U.loadImage(f.dataUrl)); app.placeCanvas(c, f.name.replace(/\.[^.]+$/, '')); }
   };
   C.newFromClipboard = async () => { const c = await readClipboard(); if (!c) { UI.toast('The clipboard has no image'); return; } app.docFromCanvas(U.clone(c.canvas), 'Clipboard'); };
   C.save = () => app.saveProject(app.doc, false);
   C.saveAs = () => app.saveProject(app.doc, true);
   C.export = () => app.exportDialog();
+  C.exportPdf = (arg) => K.PDF.exportDialog(arg);
   C.convert = () => app.convertProjects();
   C.closeDoc = () => app.closeDoc();
   C.collage = () => K.Collage.dialog();
@@ -891,6 +894,11 @@
       const files = [...e.dataTransfer.files];
       for (const f of files) {
         if (/\.(forged|kauri)$/i.test(f.name)) { await app.loadProject(await f.text(), f.name, f.path); continue; }
+        if (f.type === 'application/pdf' || K.PDF.isPdfName(f.name)) {
+          const rec = { kind: 'pdf', name: f.name, path: f.path, bytes: new Uint8Array(await f.arrayBuffer()) };
+          try { if (intoDoc && app.doc) { const [sx, sy] = pt(e); await K.PDF.place(rec, v.toDoc(sx, sy)); } else await K.PDF.open(rec); } catch (er) { UI.toast(`Could not open ${f.name}: ${er.message}`); }
+          continue;
+        }
         if (!f.type.startsWith('image/')) continue;
         const c = U.imageToCanvas(await U.loadImage(await U.blobToDataUrl(f)));
         if (intoDoc && app.doc) { const [sx, sy] = pt(e); app.placeCanvas(c, f.name.replace(/\.[^.]+$/, ''), v.toDoc(sx, sy)); }
@@ -916,7 +924,7 @@
         el('button', { class: 'big', html: K.icon('open', 22) + '<span>Open Photo…</span>', onclick: () => app.run('open') }),
         el('button', { class: 'big', html: K.icon('plus', 22) + '<span>New Blank…</span>', onclick: () => app.run('new') }),
         el('button', { class: 'big', html: K.icon('collage', 22) + '<span>Photo Collage…</span>', onclick: () => app.run('collage') })),
-      el('p', { class: 'hint' }, 'Or drop photos anywhere in this window.'),
+      el('p', { class: 'hint' }, 'Or drop photos or PDFs anywhere in this window.'),
       el('p', { class: 'hint' }, el('a', { href: '#', class: 'link', onclick: (e) => { e.preventDefault(); app.run('convert'); } }, 'Convert Forged projects to PNG or JPEG…'))));
   }
 

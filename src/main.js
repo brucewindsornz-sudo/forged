@@ -13,6 +13,7 @@ const MIME = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'i
 
 function readForRenderer(file) {
   const ext = path.extname(file).slice(1).toLowerCase();
+  if (ext === 'pdf') return { kind: 'pdf', name: path.basename(file), path: file, bytes: fs.readFileSync(file) };
   if (ext === 'forged' || ext === 'kauri') {
     return { kind: 'project', name: path.basename(file), path: file, text: fs.readFileSync(file, 'utf8') };
   }
@@ -65,13 +66,14 @@ function buildMenu() {
     { label: 'File', submenu: [
       item('New…', 'new', 'CmdOrCtrl+N'),
       item('Open…', 'open', 'CmdOrCtrl+O'),
-      item('Place Photo…', 'place', 'CmdOrCtrl+Shift+P'),
+      item('Place Photo or PDF…', 'place', 'CmdOrCtrl+Shift+P'),
       item('Photo Collage…', 'collage', 'CmdOrCtrl+Alt+N'),
       item('New from Clipboard', 'newFromClipboard'),
       { type: 'separator' },
       item('Save Project', 'save', 'CmdOrCtrl+S'),
       item('Save Project As…', 'saveAs', 'CmdOrCtrl+Shift+S'),
       item('Export…', 'export', 'CmdOrCtrl+Alt+Shift+S'),
+      item('Export as PDF…', 'exportPdf'),
       item('Convert Forged Projects…', 'convert'),
       { type: 'separator' },
       item('Close Document', 'closeDoc', 'CmdOrCtrl+W'),
@@ -290,8 +292,9 @@ ipcMain.handle('dialog:openImages', async (_e, opts = {}) => {
   const r = await dialog.showOpenDialog(win, {
     properties: ['openFile', ...(opts.multi ? ['multiSelections'] : [])],
     filters: [
-      { name: 'Images & Projects', extensions: [...IMAGE_EXT, 'forged', 'kauri'] },
+      { name: 'Images, PDFs & Projects', extensions: [...IMAGE_EXT, 'pdf', 'forged', 'kauri'] },
       { name: 'Images', extensions: IMAGE_EXT },
+      { name: 'PDF Documents', extensions: ['pdf'] },
       { name: 'Forged Projects', extensions: ['forged', 'kauri'] },
     ],
   });
@@ -312,7 +315,7 @@ ipcMain.handle('dialog:save', async (_e, { defaultName, filters, data, encoding,
   return { path: file, name: path.basename(file) };
 });
 
-// Exports: always written with metadata removed
+// Exports: always written with metadata removed (PDFs from Forged are written without any)
 ipcMain.handle('export:save', async (_e, { defaultName, filters, base64 }) => {
   const r = await dialog.showSaveDialog(win, { defaultPath: defaultName, filters });
   if (r.canceled || !r.filePath) return null;

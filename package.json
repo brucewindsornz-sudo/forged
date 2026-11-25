@@ -54,6 +54,12 @@
           "role": "Editor"
         },
         {
+          "ext": "pdf",
+          "name": "PDF Document",
+          "role": "Editor",
+          "rank": "Alternate"
+        },
+        {
           "ext": [
             "png",
             "jpg",
