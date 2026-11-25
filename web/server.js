@@ -24,9 +24,10 @@ const MIME = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.json': 'application/json',
   '.webmanifest': 'application/manifest+json', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp',
   '.gif': 'image/gif', '.bmp': 'image/bmp', '.avif': 'image/avif', '.svg': 'image/svg+xml', '.ico': 'image/x-icon',
-  '.forged': 'application/json', '.kauri': 'application/json', '.ttf': 'font/ttf', '.otf': 'font/otf', '.woff': 'font/woff', '.woff2': 'font/woff2',
+  '.forged': 'application/json', '.kauri': 'application/json', '.pdf': 'application/pdf', '.mjs': 'text/javascript; charset=utf-8',
+  '.wasm': 'application/wasm', '.bcmap': 'application/octet-stream', '.pfb': 'application/octet-stream', '.icc': 'application/vnd.iccprofile', '.txt': 'text/plain; charset=utf-8', '.ttf': 'font/ttf', '.otf': 'font/otf', '.woff': 'font/woff', '.woff2': 'font/woff2',
 };
-const LIB_EXT = new Set(['.forged', '.kauri', '.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp', '.avif']);
+const LIB_EXT = new Set(['.forged', '.kauri', '.pdf', '.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp', '.avif']);
 
 const send = (res, code, body, type = 'application/json', extra = {}) => {
   const buf = Buffer.isBuffer(body) ? body : Buffer.from(typeof body === 'string' ? body : JSON.stringify(body));
@@ -121,7 +122,7 @@ async function api(req, res, url) {
     if (READ_ONLY) return fail(res, 403, 'The library is read-only');
     if (req.method === 'PUT') {
       let full = await libPath(q.get('path'), false);
-      if (!LIB_EXT.has(path.extname(full).toLowerCase())) return fail(res, 400, 'Only images and Forged projects can be saved');
+      if (!LIB_EXT.has(path.extname(full).toLowerCase())) return fail(res, 400, 'Only images, PDFs and Forged projects can be saved');
       const mode = q.get('mode') || 'fail';
       const body = await readBody(req);
       await fsp.mkdir(path.dirname(full), { recursive: true });
